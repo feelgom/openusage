@@ -36,6 +36,8 @@ enum ProviderCatalog {
                         swapAccount: card.swapAccount,
                         preferOrganizationScopedDesktop: claudeCards.count > 1
                             && card.organizationID != nil && !card.usesDesktopCredentials
+                            && card.configDirectory == nil,
+                        configDirectory: card.configDirectory
                     ),
                     logUsageScanner: scanner,
                     allowsUnattributedPiUsage: card.allowsUnattributedPiUsage

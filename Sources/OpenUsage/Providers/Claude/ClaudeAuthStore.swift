@@ -77,6 +77,10 @@ struct ClaudeAuthStore: Sendable {
     let desktopOnly: Bool
     let swapAccount: ClaudeSwapAccount?
     let preferOrganizationScopedDesktop: Bool
+    /// A sibling Claude Code config folder (`~/.claude-<name>`) this store is pinned to, as the
+    /// absolute path Claude Code itself hashes for its Keychain service. Never falls back to the
+    /// default login's Keychain entry or `CLAUDE_CODE_OAUTH_TOKEN`.
+    let configDirectory: String?
 
     init(
         environment: EnvironmentReading = ProcessEnvironmentReader(),
@@ -88,8 +92,10 @@ struct ClaudeAuthStore: Sendable {
         desktopOnly: Bool = false,
         swapAccount: ClaudeSwapAccount? = nil,
         preferOrganizationScopedDesktop: Bool = false,
+        configDirectory: String? = nil,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
+        self.configDirectory = configDirectory
         self.environment = environment
         self.files = files
         self.keychain = keychain
@@ -165,7 +171,8 @@ struct ClaudeAuthStore: Sendable {
             stored = stored.filter { liveUsageAvailability($0) == .available }
                 + stored.filter { liveUsageAvailability($0) != .available }
         }
-        let candidates = desktopOnly || swapAccount != nil ? stored : applyingEnvironmentToken(to: stored)
+        let candidates = desktopOnly || swapAccount != nil || configDirectory != nil
+            ? stored : applyingEnvironmentToken(to: stored)
         return ClaudeCredentialLoad(candidates: candidates, desktopStatus: desktopStatus)
     }
 
@@ -271,7 +278,7 @@ struct ClaudeAuthStore: Sendable {
     }
 
     func claudeHomeOverride() -> String? {
-        swapAccount?.sessionDirectory ?? envText("CLAUDE_CONFIG_DIR")
+        swapAccount?.sessionDirectory ?? configDirectory ?? envText("CLAUDE_CONFIG_DIR")
     }
 
     // Resolved OAuth endpoint strings before URL validation. The suffix is derived from the same
@@ -343,7 +350,8 @@ struct ClaudeAuthStore: Sendable {
         let base = "\(Self.keychainServicePrefix)\(resolveOAuthEndpoints().suffix)-credentials"
         if let configDir = claudeHomeOverride() {
             let scoped = "\(base)-\(hashSuffix(configDir))"
-            return swapAccount == nil ? [scoped, base] : [scoped]
+            // A swap session or sibling config folder never reads the unscoped default login.
+            return swapAccount == nil && configDirectory == nil ? [scoped, base] : [scoped]
         }
         return [base]
     }

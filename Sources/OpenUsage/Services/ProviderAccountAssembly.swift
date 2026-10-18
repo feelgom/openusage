@@ -10,6 +10,8 @@ struct ClaudeAccountCard: Equatable, Sendable {
     var swapAccount: ClaudeSwapAccount? = nil
     var additionalLogDirectories: [String] = []
     var organizationName: String? = nil
+    /// A sibling Claude Code config folder (`~/.claude-<name>`) this card reads its login from.
+    var configDirectory: String? = nil
 }
 
 /// The launch-time account pass: read which account is signed in at each family's default home,
@@ -81,6 +83,7 @@ struct ProviderAccountAssembly {
         accountsStore: ProviderAccountsStore,
         families: Set<String> = ProviderAccountID.families,
         listCodexHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories,
+        listClaudeHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories,
         desktop: ClaudeDesktopAuthStore? = nil,
         listDesktopOrganizationDirectories: @escaping @Sendable (URL) -> [String] = { root in
             let urls = (try? FileManager.default.contentsOfDirectory(
@@ -100,6 +103,7 @@ struct ProviderAccountAssembly {
             accountsStore: accountsStore,
             families: families,
             listCodexHomeDirectories: listCodexHomeDirectories,
+            listClaudeHomeDirectories: listClaudeHomeDirectories,
             desktop: desktop,
             listDesktopOrganizationDirectories: listDesktopOrganizationDirectories
         )
@@ -165,7 +169,25 @@ struct ProviderAccountAssembly {
             }
         }
 
-        if let claudeIdentity = identityKeys["claude"], !claudeIdentity.contains("|"), swapAccounts.isEmpty {
+        let siblingHomes = claudeReadout.siblingHomes
+        if !siblingHomes.isEmpty {
+            AppLog.info(.config, "accounts: discovered \(siblingHomes.count) sibling Claude config folders")
+        }
+        for login in siblingHomes {
+            let source = ProviderAccountSource(kind: .defaultHome, anchor: login.directory, holdsDefaultSource: false)
+            if let index = observations.firstIndex(where: {
+                $0.family == "claude" && $0.identityKey == login.identityKey
+            }) {
+                observations[index].sources.append(source)
+            } else {
+                observations.append(ProviderAccountsStore.Observation(
+                    family: "claude", identityKey: login.identityKey, label: login.label, sources: [source]
+                ))
+            }
+        }
+
+        if let claudeIdentity = identityKeys["claude"], !claudeIdentity.contains("|"),
+           swapAccounts.isEmpty, siblingHomes.isEmpty {
             accountsStore.reconcile(with: observations)
             return ProviderAccountAssembly(identityKeysByCard: identityKeys, codex: codex)
         }
@@ -261,8 +283,25 @@ struct ProviderAccountAssembly {
             ))
             identityKeys[record.id] = account.identityKey
         }
+        for login in siblingHomes {
+            guard !cards.contains(where: { $0.identityKey == login.identityKey }) else {
+                AppLog.debug(.config, "accounts: Claude home \(login.directory) already has a card; not adding another")
+                continue
+            }
+            guard let record = records.first(where: {
+                $0.family == "claude" && $0.identityKey == login.identityKey && !$0.removedTombstone
+            }) else { continue }
+            cards.append(ClaudeAccountCard(
+                id: record.id, identityKey: login.identityKey,
+                organizationID: login.identityKey.split(separator: "|").dropFirst().first.map(String.init),
+                displayName: login.displayName, usesDesktopCredentials: false,
+                allowsUnattributedPiUsage: allowsUnattributedPiUsage, configDirectory: login.directory
+            ))
+            identityKeys[record.id] = login.identityKey
+        }
         for index in cards.indices {
             cards[index].additionalLogDirectories = swapAccounts.map(\.sessionDirectory)
+                + siblingHomes.map(\.directory)
         }
         return ProviderAccountAssembly(identityKeysByCard: identityKeys, claudeCards: cards, codex: codex)
     }

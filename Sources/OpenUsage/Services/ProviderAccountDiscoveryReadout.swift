@@ -6,6 +6,8 @@ struct ProviderAccountDiscoveryReadout: Sendable {
         let swapAccounts: [ClaudeSwapAccount]
         let desktopOrganizations: [ClaudeDesktopOrganization]
         let desktopAnchor: String?
+        /// Sibling `~/.claude-*` folders with their own login, distinct from the default's account.
+        let siblingHomes: [ClaudeHomeLogin]
     }
 
     struct Codex: Sendable {
@@ -38,6 +40,7 @@ extension ProviderAccountAssembly {
         accountsStore: ProviderAccountsStore,
         families: Set<String>,
         listCodexHomeDirectories: @escaping @Sendable (String) -> [String],
+        listClaudeHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories,
         desktop: ClaudeDesktopAuthStore?,
         listDesktopOrganizationDirectories: @escaping @Sendable (URL) -> [String]
     ) async -> ProviderAccountDiscoveryReadout {
@@ -49,7 +52,8 @@ extension ProviderAccountAssembly {
                 observer: observer,
                 enabled: families.contains("claude"),
                 desktop: desktop,
-                listDirectories: listDesktopOrganizationDirectories
+                listDirectories: listDesktopOrganizationDirectories,
+                listHomeDirectories: listClaudeHomeDirectories
             )
         }.value
         async let codex = Task.detached(priority: .userInitiated) {
@@ -67,7 +71,8 @@ extension ProviderAccountAssembly {
         observer: DefaultAccountObserver,
         enabled: Bool,
         desktop: ClaudeDesktopAuthStore?,
-        listDirectories: @Sendable (URL) -> [String]
+        listDirectories: @Sendable (URL) -> [String],
+        listHomeDirectories: @escaping @Sendable (String) -> [String] = CodexHomeScanner.listSubdirectories
     ) -> ProviderAccountDiscoveryReadout.Claude? {
         guard enabled else { return nil }
         let outcome = observer.observeClaude()
@@ -79,10 +84,14 @@ extension ProviderAccountAssembly {
         } else {
             nil
         }
-        guard !(defaultIdentity.map { !$0.contains("|") } == true && swapAccounts.isEmpty) else {
+        let siblingHomes = ClaudeHomeScanner(
+            environment: observer.environment, files: observer.files, keychain: observer.keychain,
+            homeDirectory: observer.homeDirectory, listDirectories: listHomeDirectories
+        ).scan(excludingIdentity: defaultIdentity)
+        guard !(defaultIdentity.map { !$0.contains("|") } == true && swapAccounts.isEmpty && siblingHomes.isEmpty) else {
             return ProviderAccountDiscoveryReadout.Claude(
                 outcome: outcome, swapAccounts: swapAccounts, desktopOrganizations: [],
-                desktopAnchor: nil
+                desktopAnchor: nil, siblingHomes: siblingHomes
             )
         }
 
@@ -98,7 +107,7 @@ extension ProviderAccountAssembly {
             .appendingPathComponent("Library/Application Support/Claude").path
         return ProviderAccountDiscoveryReadout.Claude(
             outcome: outcome, swapAccounts: swapAccounts,
-            desktopOrganizations: organizations, desktopAnchor: anchor
+            desktopOrganizations: organizations, desktopAnchor: anchor, siblingHomes: siblingHomes
         )
     }
 

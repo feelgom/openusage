@@ -87,6 +87,15 @@ Saving a refreshed Claude Code token updates only its access token, refresh toke
 latest credential document. MCP logins and other Claude Code fields are preserved, including changes
 made while OpenUsage was refreshing.
 
+## Other Claude config folders
+
+OpenUsage also finds sibling Claude Code config folders named `~/.claude-<name>` (for example one
+per seat, launched with `CLAUDE_CONFIG_DIR=$HOME/.claude-<name>`). A folder with a signed-in account
+gets its own card, named by its email; one that repeats the default login shares the default card.
+Each card reads only its own folder's login and Keychain entry, never the default login or an
+environment token. `~/.claude-swap-backup` is Claude Swap's, not a config folder. Restart OpenUsage
+after adding or removing a folder.
+
 ## Claude Swap accounts
 
 OpenUsage discovers the saved accounts in Claude Swap's `~/.claude-swap-backup/sequence.json`

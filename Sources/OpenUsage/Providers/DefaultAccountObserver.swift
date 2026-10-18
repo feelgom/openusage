@@ -53,6 +53,12 @@ struct DefaultAccountObserver: Sendable {
         var oauthAccount: OAuthAccount?
     }
 
+    /// The `oauthAccount` block of a Claude Code state file's text, or nil when the text isn't a
+    /// state file or names no account. Shared by the default-home read and the sibling-home scan.
+    static func claudeAccount(inStateFile text: String) -> ClaudeStateFile.OAuthAccount? {
+        (try? JSONDecoder().decode(ClaudeStateFile.self, from: Data(text.utf8)))?.oauthAccount
+    }
+
     /// Claude identity key: account UUID plus the org UUID when present. Plans are org-scoped — one
     /// human commonly has a personal Max org and a company Team org under the SAME account, and those
     /// are different usage pools that must stay different accounts, never merge.
@@ -99,8 +105,7 @@ struct DefaultAccountObserver: Sendable {
                 ? .unresolved(reason: "credentials present but no identity file")
                 : .absent
         }
-        guard let parsed = try? JSONDecoder().decode(ClaudeStateFile.self, from: Data(text.utf8)),
-              let account = parsed.oauthAccount,
+        guard let account = Self.claudeAccount(inStateFile: text),
               let key = Self.claudeIdentityKey(account)
         else {
             return .unresolved(reason: "identity file present but names no account")
